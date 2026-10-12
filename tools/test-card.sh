@@ -132,6 +132,31 @@ fi
 [ "$P" = ready ] || { result probe "not ready"; exit 1; }
 result probe ready
 
+# NetworkManager has to leave OWL's interfaces alone, which the package's
+# packaging/99-omdrop-owl-unmanaged.conf sees to and a source build doesn't.
+# Managing them, it has kept the phone from ever being heard, and crashed
+# iwlwifi's firmware a second into the window (#23).
+if command -v NetworkManager >/dev/null && [ "$(nmcli -t -f RUNNING general 2>/dev/null)" = running ]; then
+  step "NetworkManager"
+  unmanaged=$(NetworkManager --print-config 2>/dev/null | sed -n 's/^unmanaged-devices=//p' | tr ';,' '\n\n')
+  managed=()
+  for n in awdl0 mon0 awdlibss0; do
+    grep -qx "interface-name:$n" <<< "$unmanaged" || managed+=("$n")
+  done
+  if [ ${#managed[@]} -eq 0 ]; then
+    result NetworkManager "leaves awdl0, mon0 and awdlibss0 alone"
+  else
+    result NetworkManager "would manage ${managed[*]}"
+    cat <<EOF
+NetworkManager isn't told to leave ${managed[*]} alone, and the test is
+unlikely to pass while it manages them. To tell it:
+  sudo cp $ROOT/packaging/99-omdrop-owl-unmanaged.conf /etc/NetworkManager/conf.d/
+  sudo nmcli general reload conf
+EOF
+    [ "$(ask "Go on anyway?")" = y ] || exit 1
+  fi
+fi
+
 GW=$(ip -4 route show default dev "$STA" | awk '{print $3; exit}')
 [ -n "$GW" ] || { result wifi "no default route on $STA"; exit 1; }
 
