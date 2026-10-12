@@ -350,7 +350,8 @@ cmd_stop() {
 
 # ---------------------------------------------------------------------- start
 
-# The background half of a window: announce, watch OWL, end at expiry.
+# The background half of a window: announce, watch OWL and the monitor
+# interface, end at expiry.
 supervise() {
   local until burst=$ADV_BURST
   [ -e "$RUN/exclusive" ] && burst=$ADV_BURST_EXCLUSIVE
@@ -363,6 +364,14 @@ supervise() {
     if ! alive "$(pid_of owl)" "$OWL_BIN"; then
       log "OWL exited: $(tail -1 "$OWL_LOG" 2>/dev/null)"
       exec "$SELF" stop owl-exited
+    fi
+    # A driver that reloads (iwlwifi after a firmware crash) takes the monitor
+    # interface with it. OWL stays up, failing every injection, and awdl0
+    # keeps its address, so status went on reporting a dead window as visible
+    # (#23).
+    if ! ip link show "$MON" >/dev/null 2>&1; then
+      log "$MON is gone; the driver may have reloaded"
+      exec "$SELF" stop radio-lost
     fi
     python3 "$LIB/awdl-airdrop-adv.py" --iface "$IF" --plain --flags "$ADV_FLAGS" --port 8771 \
       $burst >> "$RUN/announce.log" 2>&1
